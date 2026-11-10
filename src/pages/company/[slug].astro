@@ -1,0 +1,128 @@
+---
+import Base from '../../layouts/Base.astro';
+import Icon from '../../components/Icon.astro';
+import Scanner from '../../components/Scanner.astro';
+import { isStaff } from '../../lib/auth';
+import { getDb } from '../../lib/db';
+import { getEmployer } from '../../lib/employers';
+import { sessionSecret } from '../../lib/env';
+
+const env = Astro.locals.runtime.env;
+const { slug = '' } = Astro.params;
+const employer = getEmployer(slug);
+
+if (!employer) return Astro.redirect('/staff', 302);
+
+const secret = sessionSecret(env);
+if (!(await isStaff(Astro.request, secret))) {
+  return Astro.redirect(`/staff?next=${encodeURIComponent(`/company/${employer.slug}`)}`, 302);
+}
+
+const startOfDay = new Date();
+startOfDay.setUTCHours(0, 0, 0, 0);
+const today = await getDb(env)
+  .prepare('SELECT COUNT(*) AS n FROM visits WHERE employer = ? AND created_at >= ?')
+  .bind(employer.slug, startOfDay.toISOString())
+  .first<{ n: number }>();
+const todayCount = Number(today?.n ?? 0);
+---
+
+<Base title={`${employer.name} booth`} description={`Booth scanner for ${employer.name} at the Green Career Fair.`} noindex>
+  <div class="shell stack stack-lg">
+    <header class="spread">
+      <div class="row" style="gap: 1rem">
+        <span class="monogram monogram-lg" style={`--accent:${employer.accent}`}>{employer.monogram}</span>
+        <div class="stack stack-sm">
+          <span class="eyebrow">Booth scanner</span>
+          <h1>{employer.name}</h1>
+          <p class="muted tiny">{employer.focus} · {todayCount} scan{todayCount === 1 ? '' : 's'} today</p>
+        </div>
+      </div>
+      <div class="row">
+        <a class="btn btn-ghost btn-sm" href="/staff">
+          <Icon name="users" size={16} />
+          Staff desk
+        </a>
+        <form method="post" action="/api/staff/logout">
+          <button class="btn btn-ghost btn-sm" type="submit">
+            <Icon name="logout" size={16} />
+            Lock
+          </button>
+        </form>
+      </div>
+    </header>
+
+    <div class="booth-grid">
+      <Scanner mode="visit" employer={employer.slug} employerName={employer.name} accent={employer.accent} />
+
+      <aside class="stack stack-md">
+        <section class="card card-pad stack stack-sm">
+          <span class="eyebrow">At the stand</span>
+          <h2>How a scan works</h2>
+          <ol class="tips-list">
+            <li>Ask the visitor to open their pass at <span class="mono">/dashboard</span>.</li>
+            <li>Hold their QR inside the frame — the visit is logged instantly.</li>
+            <li>Their name, course and email appear so you can follow up.</li>
+          </ol>
+          <p class="tiny muted">Each pass can only be checked in once at this stand. Repeat scans are flagged, not double-counted.</p>
+        </section>
+
+        <section class="card card-pad stack stack-sm">
+          <span class="eyebrow">Privacy</span>
+          <h3>What you receive</h3>
+          <p class="muted tiny">
+            Visitors consent to sharing the details on their pass with the stand that scans them. Use them for
+            recruitment follow-up only, and delete anything you no longer need.
+          </p>
+          <div class="row">
+            <span class="chip"><Icon name="shield" size={15} /> Consented share</span>
+            <span class="chip"><Icon name="qr" size={15} /> No raw IDs</span>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+</Base>
+
+<style>
+  .booth-grid {
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    align-items: start;
+  }
+
+  .monogram-lg {
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    font-size: 0.9rem;
+  }
+
+  h1 {
+    font-size: clamp(1.9rem, 3.4vw, 2.7rem);
+  }
+
+  .tips-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: grid;
+    gap: 0.5rem;
+    color: #3d5648;
+    font-size: 0.9rem;
+  }
+
+  .mono {
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    font-size: 0.85em;
+    background: rgba(14, 59, 39, 0.06);
+    padding: 0.1rem 0.35rem;
+    border-radius: 6px;
+  }
+
+  @media (max-width: 900px) {
+    .booth-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

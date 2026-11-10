@@ -1,202 +1,372 @@
 ---
-import Layout from '../layouts/Layout.astro';
+import QRCode from 'qrcode';
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+import { currentVisitorId } from '../lib/auth';
+import { getDb, progressFor } from '../lib/db';
+import { employers, totalEmployers } from '../lib/employers';
+import { sessionSecret } from '../lib/env';
+import { formatTime } from '../lib/format';
+import { encodePass } from '../lib/pass';
+
+const env = Astro.locals.runtime.env;
+const visitorId = await currentVisitorId(Astro.request, sessionSecret(env));
+if (!visitorId) return Astro.redirect('/', 302);
+
+const progress = await progressFor(getDb(env), visitorId);
+if (!progress) return Astro.redirect('/', 302);
+
+const { visitor, visited, remaining, completed, redeemedAt } = progress;
+const visitedCount = visited.length;
+const percent = Math.round((visitedCount / totalEmployers) * 100);
+
+const qrSvg = await QRCode.toString(encodePass(visitor.token), {
+  type: 'svg',
+  margin: 1,
+  width: 320,
+  errorCorrectionLevel: 'M',
+  color: { dark: '#0b2b1c', light: '#ffffff' },
+});
+
+const chocState = redeemedAt ? 'collected' : completed ? 'ready' : 'locked';
+const shortId = visitor.id.slice(0, 4).toUpperCase();
 ---
 
-<Layout>
-	<main class="page">
-		<section class="panel">
-			<header class="header">
-				<div>
-					<p class="eyebrow">Green Career Fair</p>
-					<h1>Your Visitor QR</h1>
-					<p class="subcopy" id="login-message" aria-live="polite"></p>
-				</div>
-				<a class="logout" href="/" id="logoutLink">Log out</a>
-			</header>
+<Base title="Your visitor pass" description="Your personal Green Career Fair QR pass and stand progress." noindex staffLink={false}>
+  <div class="shell stack stack-lg">
+    <header class="spread">
+      <div class="stack stack-sm">
+        <span class="eyebrow">Visitor pass</span>
+        <h1>Your QR, {visitor.name.split(' ')[0]}.</h1>
+        <p class="muted">Show this at every stand. It updates as employers scan you in.</p>
+      </div>
+      <form method="post" action="/api/logout">
+        <button class="btn btn-ghost btn-sm" type="submit">
+          <Icon name="logout" size={16} />
+          Log out
+        </button>
+      </form>
+    </header>
 
-			<div class="content">
-				<div class="qr">
-					<img src="" alt="Visitor QR code" id="qrImage" />
-					<p class="qr-label">Show this at each company booth to collect your stamps.</p>
-				</div>
-				<div class="tips">
-					<h2>How it works</h2>
-					<ol>
-						<li>Register once using your university email.</li>
-						<li>Each company scans your QR to mark a visit.</li>
-						<li>After all companies, scan at the chocolate counter.</li>
-					</ol>
-					<p class="consent">By showing your QR code, you agree to share your email with the company you scan.</p>
-				</div>
-			</div>
-		</section>
-	</main>
-</Layout>
+    <div class="pass">
+      <section class="card card-pad pass-card">
+        <div class="pass-top">
+          <div class="stack stack-sm">
+            <span class="eyebrow">Green Career Fair · Visitor pass</span>
+            <h2 class="pass-name">{visitor.name}</h2>
+          </div>
+          <span class="chip chip-lime">Visitor</span>
+        </div>
+
+        <div class="qr-frame" set:html={qrSvg} aria-label={`QR pass for ${visitor.name}`}></div>
+
+        <div class="pass-meta">
+          <div>
+            <span class="meta-label">Course</span>
+            <span class="meta-value">{visitor.course}</span>
+          </div>
+          <div>
+            <span class="meta-label">Graduating</span>
+            <span class="meta-value">{visitor.grad_year ?? '—'}</span>
+          </div>
+          <div>
+            <span class="meta-label">Email</span>
+            <span class="meta-value">{visitor.email}</span>
+          </div>
+          <div>
+            <span class="meta-label">Pass</span>
+            <span class="meta-value mono">GFC-{shortId}</span>
+          </div>
+        </div>
+
+        <p class="tiny muted center">Screenshot this screen, or keep it open — the pass works either way.</p>
+      </section>
+
+      <div class="stack stack-md">
+        <section class="card card-pad">
+          <div class="progress-head">
+            <div class="ring" style={`--value:${percent}`} data-ring data-percent={percent}>
+              <span class="ring-value">
+                <span data-ring-count>{visitedCount}</span>
+                <small>of {totalEmployers}</small>
+              </span>
+            </div>
+            <div class="stack stack-sm progress-copy">
+              <span class="eyebrow">Stand progress</span>
+              <h2 data-progress-title>
+                {completed ? 'Lap complete' : `${remaining.length} stand${remaining.length === 1 ? '' : 's'} to go`}
+              </h2>
+              <p class="muted tiny" data-progress-note>
+                {completed
+                  ? 'Every employer has scanned you in. Head to the chocolate counter.'
+                  : 'Each booth scans your pass once. Keep this page handy.'}
+              </p>
+            </div>
+          </div>
+
+          <div class="employer-grid" data-employer-list>
+            {
+              employers.map((employer) => (
+                <div class:list={['employer-row', { 'is-visited': visited.includes(employer.slug) }]} data-employer={employer.slug}>
+                  <span class="monogram" style={`--accent:${employer.accent}`}>{employer.monogram}</span>
+                  <span class="employer-meta">
+                    <span class="employer-name">{employer.short}</span>
+                    <span class="employer-focus">{employer.focus}</span>
+                  </span>
+                  <span class="tick" aria-hidden="true">
+                    <Icon name="check" size={14} stroke={2.4} />
+                  </span>
+                </div>
+              ))
+            }
+          </div>
+
+          <div class="stack stack-sm refresh-row">
+            <button class="btn btn-ghost btn-sm" type="button" data-refresh>
+              <Icon name="refresh" size={16} />
+              Refresh progress
+            </button>
+            <span class="tiny muted" data-refresh-note>Checking automatically every 20 seconds.</span>
+          </div>
+        </section>
+
+        <section class:list={['card card-pad choc-banner', `choc-${chocState}`]} data-choc-state={chocState}>
+          <div class="choc-row">
+            <span class="icon-badge" aria-hidden="true"><Icon name="chocolate" size={26} /></span>
+            <div class="stack stack-sm">
+              <span class="eyebrow" style="color:#f0c98a">Chocolate counter</span>
+              <h3 data-choc-title>
+                {chocState === 'collected'
+                  ? 'Chocolate collected'
+                  : chocState === 'ready'
+                    ? 'Your chocolate is waiting'
+                    : 'Locked until the lap is done'}
+              </h3>
+              <p class="muted tiny" data-choc-note>
+                {chocState === 'collected'
+                  ? `Redeemed at ${formatTime(redeemedAt)}. Enjoy — and good luck with the applications.`
+                  : chocState === 'ready'
+                    ? 'Show this pass at the chocolate counter to claim it.'
+                    : `Visit all ${totalEmployers} stands to unlock your free chocolate.`}
+              </p>
+            </div>
+            {redeemedAt && <span class="chip chip-lime">Collected</span>}
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</Base>
 
 <script>
-	(function () {
-		const match = document.cookie.split('; ').find((row) => row.startsWith('registrationId='));
-		const registerId = match ? decodeURIComponent(match.split('=')[1]) : '';
-		if (!registerId) {
-			window.location.replace('/');
-			return;
-		}
+  const ring = document.querySelector<HTMLElement>('[data-ring]');
+  const ringCount = document.querySelector<HTMLElement>('[data-ring-count]');
+  const progressTitle = document.querySelector<HTMLElement>('[data-progress-title]');
+  const progressNote = document.querySelector<HTMLElement>('[data-progress-note]');
+  const refreshButton = document.querySelector<HTMLButtonElement>('[data-refresh]');
+  const refreshNote = document.querySelector<HTMLElement>('[data-refresh-note]');
+  const choc = document.querySelector<HTMLElement>('[data-choc-state]');
 
-		const img = document.getElementById('qrImage');
-		if (img) {
-			img.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(registerId)}`;
-		}
+  let latestSignature = '';
 
-		const emailMatch = document.cookie.split('; ').find((row) => row.startsWith('email='));
-		const email = emailMatch ? decodeURIComponent(emailMatch.split('=')[1]) : '';
-		const message = document.getElementById('login-message');
-		if (message && email) {
-			message.textContent = `Logged in as ${email}.`;
-		}
+  function render(data: {
+    visited: string[];
+    remaining: { slug: string; name: string }[];
+    completed: boolean;
+    redeemedAt: string | null;
+  }) {
+    const total = data.visited.length + data.remaining.length;
+    const percent = total ? Math.round((data.visited.length / total) * 100) : 0;
 
-		const logoutLink = document.getElementById('logoutLink');
-		if (logoutLink) {
-			logoutLink.addEventListener('click', () => {
-				document.cookie = 'registrationId=; path=/; max-age=0; SameSite=Lax; Secure';
-				document.cookie = 'email=; path=/; max-age=0; SameSite=Lax; Secure';
-			});
-		}
-	})();
+    if (ring) ring.style.setProperty('--value', String(percent));
+    if (ringCount) ringCount.textContent = String(data.visited.length);
+
+    if (progressTitle) {
+      progressTitle.textContent = data.completed
+        ? 'Lap complete'
+        : `${data.remaining.length} stand${data.remaining.length === 1 ? '' : 's'} to go`;
+    }
+    if (progressNote) {
+      progressNote.textContent = data.completed
+        ? 'Every employer has scanned you in. Head to the chocolate counter.'
+        : 'Each booth scans your pass once. Keep this page handy.';
+    }
+
+    for (const row of document.querySelectorAll<HTMLElement>('[data-employer]')) {
+      const slug = row.dataset.employer ?? '';
+      row.classList.toggle('is-visited', data.visited.includes(slug));
+    }
+
+    if (choc) {
+      const state = data.redeemedAt ? 'collected' : data.completed ? 'ready' : 'locked';
+      if (choc.dataset.chocState !== state) {
+        choc.dataset.chocState = state;
+        choc.classList.remove('choc-collected', 'choc-ready', 'choc-locked');
+        choc.classList.add(`choc-${state}`);
+        const title = choc.querySelector<HTMLElement>('[data-choc-title]');
+        const note = choc.querySelector<HTMLElement>('[data-choc-note]');
+        if (title) {
+          title.textContent =
+            state === 'collected'
+              ? 'Chocolate collected'
+              : state === 'ready'
+                ? 'Your chocolate is waiting'
+                : 'Locked until the lap is done';
+        }
+        if (note) {
+          note.textContent =
+            state === 'collected'
+              ? 'Redeemed at the counter. Enjoy the rest of the fair.'
+              : state === 'ready'
+                ? 'Show this pass at the chocolate counter to claim it.'
+                : `Visit all ${total} stands to unlock your free chocolate.`;
+        }
+      }
+    }
+
+    if (refreshNote) {
+      refreshNote.textContent = `Last checked at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.`;
+    }
+  }
+
+  async function refresh() {
+    try {
+      const response = await fetch('/api/visitor', { headers: { Accept: 'application/json' }, cache: 'no-store' });
+      if (!response.ok) return;
+      const data = (await response.json()) as {
+        visited: string[];
+        remaining: { slug: string; name: string }[];
+        completed: boolean;
+        redeemedAt: string | null;
+      };
+      const signature = `${data.visited.join(',')}|${data.completed}|${data.redeemedAt}`;
+      if (signature === latestSignature) return;
+      latestSignature = signature;
+      render(data);
+    } catch {
+      /* Offline — the server-rendered values stay on screen. */
+    }
+  }
+
+  refreshButton?.addEventListener('click', async () => {
+    refreshButton.disabled = true;
+    await refresh();
+    refreshButton.disabled = false;
+  });
+
+  setInterval(() => {
+    if (document.visibilityState === 'visible') refresh();
+  }, 20000);
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refresh();
+  });
 </script>
 
 <style>
-	:global(body) {
-		margin: 0;
-		font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-		background: radial-gradient(circle at top, #e9f2e7 0%, #f6f2e8 40%, #f7f5f0 100%);
-		color: #102317;
-	}
+  .pass-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    background:
+      radial-gradient(120% 110% at 0% 0%, rgba(200, 241, 105, 0.16) 0%, rgba(200, 241, 105, 0) 55%),
+      var(--paper);
+  }
 
-	.page {
-		min-height: 100vh;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 3.5rem 1.5rem;
-	}
+  .pass-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
 
-	.panel {
-		width: min(980px, 100%);
-		background: rgba(255, 255, 255, 0.96);
-		border-radius: 28px;
-		padding: 2.5rem clamp(1.5rem, 3vw, 3rem);
-		box-shadow: 0 25px 80px rgba(15, 40, 18, 0.2);
-		backdrop-filter: blur(6px);
-	}
+  .pass-name {
+    font-size: 1.8rem;
+  }
 
-	.header {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: 1.5rem;
-		flex-wrap: wrap;
-		margin-bottom: 2rem;
-	}
+  .pass-meta {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 
-	.eyebrow {
-		text-transform: uppercase;
-		letter-spacing: 0.2em;
-		font-size: 0.75rem;
-		font-weight: 700;
-		color: #2f6a3b;
-		margin: 0 0 0.5rem 0;
-	}
+  .pass-meta > div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
 
-	h1 {
-		font-size: clamp(2rem, 4vw, 3rem);
-		margin: 0 0 0.5rem 0;
-	}
+  .meta-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: #6a8074;
+  }
 
-	.subcopy {
-		margin: 0;
-		color: #375744;
-		font-weight: 500;
-	}
+  .meta-value {
+    font-size: 0.92rem;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
 
-	.logout {
-		text-decoration: none;
-		background: #1f8a4d;
-		color: #fff;
-		padding: 0.6rem 1.2rem;
-		border-radius: 999px;
-		font-weight: 600;
-		transition: transform 0.2s ease, box-shadow 0.2s ease;
-	}
+  .mono {
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    letter-spacing: 0.04em;
+  }
 
-	.logout:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 10px 25px rgba(31, 138, 77, 0.3);
-	}
+  .progress-head {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+  }
 
-	.content {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-		gap: 2rem;
-		align-items: center;
-	}
+  .progress-copy h2 {
+    font-size: 1.5rem;
+  }
 
-	.qr {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 1rem;
-		padding: 1.5rem;
-		border-radius: 20px;
-		background: #f3f8f2;
-		border: 1px solid rgba(31, 138, 77, 0.15);
-	}
+  .refresh-row {
+    margin-top: 1.1rem;
+    align-items: flex-start;
+  }
 
-	.qr img {
-		width: min(260px, 70vw);
-		height: auto;
-		border-radius: 18px;
-		background: #fff;
-		padding: 0.5rem;
-		box-shadow: 0 14px 30px rgba(7, 33, 17, 0.18);
-	}
+  .choc-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+  }
 
-	.qr-label {
-		margin: 0;
-		font-weight: 600;
-		color: #234232;
-		text-align: center;
-	}
+  .choc-row .icon-badge {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    flex: none;
+    border-radius: 16px;
+    background: rgba(217, 164, 74, 0.18);
+    color: #f0c98a;
+    border: 1px solid rgba(240, 201, 138, 0.28);
+  }
 
-	.tips {
-		padding: 0 1rem;
-	}
+  .choc-ready .icon-badge {
+    animation: pulse-ring 2.4s ease-in-out infinite;
+    color: var(--lime-300);
+  }
 
-	.tips h2 {
-		font-size: 1.5rem;
-		margin-bottom: 0.8rem;
-		color: #173c27;
-	}
+  .choc-row .chip {
+    margin-left: auto;
+  }
 
-	.tips ol {
-		margin: 0 0 1.2rem 1.2rem;
-		padding: 0;
-		color: #375744;
-		display: grid;
-		gap: 0.5rem;
-	}
+  @media (max-width: 640px) {
+    .progress-head {
+      align-items: flex-start;
+    }
 
-	.consent {
-		font-size: 0.95rem;
-		color: #5a6e62;
-	}
-
-	@media (max-width: 700px) {
-		.panel {
-			padding: 2rem 1.5rem;
-		}
-		.logout {
-			width: 100%;
-			text-align: center;
-		}
-	}
+    .ring {
+      width: 104px;
+      height: 104px;
+    }
+  }
 </style>

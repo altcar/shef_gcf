@@ -1,0 +1,3 @@
+# Event site — keep it out of search engines during the fair.
+User-agent: *
+Disallow: /

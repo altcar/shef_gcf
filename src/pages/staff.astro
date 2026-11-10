@@ -1,0 +1,375 @@
+---
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+import { isStaff } from '../lib/auth';
+import { fairStats, getDb } from '../lib/db';
+import { employers, totalEmployers } from '../lib/employers';
+import { sessionSecret } from '../lib/env';
+import { percentage } from '../lib/format';
+
+const env = Astro.locals.runtime.env;
+const secret = sessionSecret(env);
+const staff = await isStaff(Astro.request, secret);
+const next = new URL(Astro.request.url).searchParams.get('next') ?? '/staff';
+const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/staff';
+
+const stats = staff ? await fairStats(getDb(env)) : null;
+const completion = stats ? percentage(stats.redemptions, stats.visitors) : 0;
+---
+
+<Base title="Staff desk" description="Booth, chocolate counter and registration overview for Green Career Fair volunteers." noindex>
+  <div class="shell stack stack-lg">
+    {
+      !staff ? (
+        <section class="login-wrap">
+          <div class="card card-pad stack stack-md login-card">
+            <div class="stack stack-sm">
+              <span class="eyebrow">Staff area</span>
+              <h1>Unlock the scanners</h1>
+              <p class="muted">
+                Booth and chocolate-counter pages are locked behind the volunteer passcode. Enter it once on each
+                device — the session lasts a twelve-hour shift.
+              </p>
+            </div>
+
+            <form id="staff-form" class="stack stack-md" novalidate>
+              <div class="field">
+                <label for="staff-code">Volunteer passcode</label>
+                <input
+                  class="input"
+                  id="staff-code"
+                  name="code"
+                  type="password"
+                  autocomplete="current-password"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+              <input type="hidden" name="next" value={safeNext} />
+              <button class="btn btn-primary btn-block" type="submit">
+                <Icon name="shield" size={18} />
+                Unlock scanners
+              </button>
+              <div id="staff-status" class="alert alert-danger" role="status" aria-live="polite" hidden></div>
+            </form>
+
+            <p class="tiny muted">
+              Lost the passcode? It is set as the <span class="mono">STAFF_CODE</span> secret on the Worker — ask the
+              event organiser to rotate it.
+            </p>
+          </div>
+        </section>
+      ) : (
+        <>
+          <header class="spread">
+            <div class="stack stack-sm">
+              <span class="eyebrow">Staff desk</span>
+              <h1>Fair overview</h1>
+              <p class="muted">Live numbers from the visitor passes, booth scans and chocolate counter.</p>
+            </div>
+            <div class="row">
+              <a class="btn btn-ghost btn-sm" href="/api/export">
+                <Icon name="upload" size={16} />
+                Export CSV
+              </a>
+              <form method="post" action="/api/staff/logout">
+                <button class="btn btn-ghost btn-sm" type="submit">
+                  <Icon name="logout" size={16} />
+                  Lock device
+                </button>
+              </form>
+            </div>
+          </header>
+
+          <section class="stat-grid">
+            <div class="stat">
+              <p class="stat-value">{stats?.visitors ?? 0}</p>
+              <p class="stat-label">Visitors registered</p>
+            </div>
+            <div class="stat">
+              <p class="stat-value">{stats?.visits ?? 0}</p>
+              <p class="stat-label">Stand scans</p>
+            </div>
+            <div class="stat">
+              <p class="stat-value">{stats?.completedVisitors ?? 0}</p>
+              <p class="stat-label">Full laps</p>
+            </div>
+            <div class="stat">
+              <p class="stat-value">{stats?.redemptions ?? 0}</p>
+              <p class="stat-label">Chocolates given</p>
+            </div>
+            <div class="stat">
+              <p class="stat-value">{completion}%</p>
+              <p class="stat-label">Redemption rate</p>
+            </div>
+          </section>
+
+          <div class="staff-grid">
+            <section class="card card-pad stack stack-md">
+              <div class="card-head">
+                <div class="stack stack-sm">
+                  <span class="eyebrow">Booths</span>
+                  <h2>Open a scanner</h2>
+                </div>
+                <span class="chip chip-lime">{totalEmployers} stands</span>
+              </div>
+              <div class="booth-links">
+                {employers.map((employer) => (
+                  <a class="booth-link" href={`/company/${employer.slug}`}>
+                    <span class="monogram" style={`--accent:${employer.accent}`}>{employer.monogram}</span>
+                    <span class="booth-text">
+                      <strong>{employer.short}</strong>
+                      <span class="tiny muted">{employer.focus}</span>
+                    </span>
+                    <Icon name="arrow" size={16} />
+                  </a>
+                ))}
+                <a class="booth-link booth-link-choc" href="/chocolate">
+                  <span class="monogram" style="--accent:#7b4526"><Icon name="chocolate" size={18} /></span>
+                  <span class="booth-text">
+                    <strong>Chocolate counter</strong>
+                    <span class="tiny muted">Reward verification</span>
+                  </span>
+                  <Icon name="arrow" size={16} />
+                </a>
+              </div>
+            </section>
+
+            <section class="card card-pad stack stack-md">
+              <div class="card-head">
+                <div class="stack stack-sm">
+                  <span class="eyebrow">Coverage</span>
+                  <h2>Visits per stand</h2>
+                </div>
+                <span class="tiny muted">{stats?.todayVisits ?? 0} today</span>
+              </div>
+              <div class="coverage">
+                {(stats?.perEmployer ?? []).map((row) => {
+                  const pct = percentage(row.visits, Math.max(1, stats?.visitors ?? 1));
+                  return (
+                    <div class="coverage-row">
+                      <span class="coverage-name">{row.name}</span>
+                      <div class="progress" aria-hidden="true">
+                        <span style={`width:${Math.min(100, pct)}%`}></span>
+                      </div>
+                      <span class="coverage-count">{row.visits}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+
+          <section class="card card-pad stack stack-md">
+            <div class="card-head">
+              <div class="stack stack-sm">
+                <span class="eyebrow">Latest</span>
+                <h2>Recent registrations</h2>
+              </div>
+              <span class="tiny muted">{stats?.todayRedemptions ?? 0} chocolate{stats?.todayRedemptions === 1 ? '' : 's'} today</span>
+            </div>
+
+            {stats && stats.recent.length > 0 ? (
+              <div class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Visitor</th>
+                      <th scope="col">Course</th>
+                      <th scope="col">Email</th>
+                      <th scope="col">Stands</th>
+                      <th scope="col">Chocolate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.recent.map((row) => (
+                      <tr>
+                        <td>
+                          <strong>{row.name}</strong>
+                        </td>
+                        <td class="muted">{row.course}</td>
+                        <td class="muted">{row.email}</td>
+                        <td>
+                          <span class:list={['chip', row.visited === totalEmployers ? 'chip-lime' : '']}>
+                            {row.visited}/{totalEmployers}
+                          </span>
+                        </td>
+                        <td>
+                          {row.redeemed ? (
+                            <span class="chip chip-choc">Collected</span>
+                          ) : row.visited === totalEmployers ? (
+                            <span class="chip chip-warn">Ready</span>
+                          ) : (
+                            <span class="tiny muted">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div class="empty">
+                <p class="muted">No registrations yet. Share the link and the first pass will appear here.</p>
+              </div>
+            )}
+          </section>
+
+          <p class="tiny muted">
+            Every scan is logged. Only signed-in volunteers can open a scanner; every visitor pass is a random token,
+            so a QR cannot be guessed from a visitor number.
+          </p>
+        </>
+      )
+    }
+  </div>
+</Base>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('#staff-form');
+  const status = document.querySelector<HTMLElement>('#staff-status');
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (status) status.hidden = true;
+    const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (button) button.disabled = true;
+
+    try {
+      const payload = Object.fromEntries(new FormData(form).entries());
+      const response = await fetch('/api/staff/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = (await response.json().catch(() => ({}))) as { error?: string; redirect?: string };
+      if (!response.ok) {
+        if (status) {
+          status.hidden = false;
+          status.textContent = data.error ?? 'Could not unlock the scanners.';
+        }
+        return;
+      }
+      window.location.assign(data.redirect ?? '/staff');
+    } catch {
+      if (status) {
+        status.hidden = false;
+        status.textContent = 'Network error. Try again.';
+      }
+    } finally {
+      if (button) button.disabled = false;
+    }
+  });
+</script>
+
+<style>
+  .login-wrap {
+    display: grid;
+    place-items: center;
+    min-height: 60vh;
+  }
+
+  .login-card {
+    width: min(520px, 100%);
+  }
+
+  .mono {
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    font-size: 0.88em;
+    background: rgba(14, 59, 39, 0.07);
+    padding: 0.05rem 0.35rem;
+    border-radius: 6px;
+  }
+
+  .staff-grid {
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    align-items: start;
+  }
+
+  .booth-links {
+    display: grid;
+    gap: 0.55rem;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  }
+
+  .booth-link {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.65rem 0.8rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(14, 59, 39, 0.1);
+    background: #fff;
+    text-decoration: none;
+    color: var(--ink);
+    transition: transform 160ms ease, border-color 160ms ease;
+  }
+
+  .booth-link:hover {
+    transform: translateY(-1px);
+    border-color: rgba(23, 119, 74, 0.3);
+    color: var(--ink);
+  }
+
+  .booth-link > svg {
+    margin-left: auto;
+    color: var(--green-600);
+  }
+
+  .booth-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .booth-text strong {
+    font-size: 0.9rem;
+  }
+
+  .coverage {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+
+  .coverage-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(80px, 1.1fr) 2.2rem;
+    align-items: center;
+    gap: 0.7rem;
+    font-size: 0.85rem;
+  }
+
+  .coverage-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+  }
+
+  .coverage-count {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: #4c6355;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  .empty {
+    padding: 1.5rem;
+    border-radius: var(--radius-md);
+    border: 1px dashed rgba(14, 59, 39, 0.18);
+    background: rgba(255, 255, 255, 0.5);
+    text-align: center;
+  }
+
+  @media (max-width: 900px) {
+    .staff-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

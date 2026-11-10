@@ -1,0 +1,506 @@
+---
+import Icon from './Icon.astro';
+
+interface Props {
+  mode: 'visit' | 'redeem';
+  /** Employer slug, required for visit mode. */
+  employer?: string;
+  employerName?: string;
+  accent?: string;
+}
+
+const { mode, employer, employerName, accent = '#17774a' } = Astro.props;
+const endpoint = mode === 'visit' ? '/api/visit' : '/api/redeem';
+const title = mode === 'visit' ? 'Scan a visitor pass' : 'Check a pass';
+const hint =
+  mode === 'visit'
+    ? 'Point the camera at the QR pass on the visitor’s phone.'
+    : 'Scan the pass to check all seven stands are complete.';
+---
+
+<section class="card card-pad scanner" data-scanner data-mode={mode} data-endpoint={endpoint} data-employer={employer ?? ''}>
+  <div class="card-head">
+    <div class="stack stack-sm">
+      <span class="eyebrow" style={`color:${accent}`}>{mode === 'visit' ? 'Booth scanner' : 'Reward desk'}</span>
+      <h2>{title}</h2>
+      <p class="muted tiny">{hint}</p>
+    </div>
+    <span class="chip">
+      <span class="dot" aria-hidden="true"></span>
+      Staff only
+    </span>
+  </div>
+
+  <div class="scan-stage" data-stage>
+    <video data-video playsinline muted aria-label="Camera preview"></video>
+    <div class="scan-placeholder" data-placeholder>
+      <span class="icon-badge"><Icon name="camera" size={30} /></span>
+      <p class="muted tiny" style="color:#cfe4d7">{hint}</p>
+      <button class="btn btn-primary" type="button" data-start>
+        <Icon name="camera" size={18} />
+        Start camera
+      </button>
+    </div>
+    <div class="scan-frame" data-frame hidden><span></span></div>
+  </div>
+
+  <div class="scan-controls">
+    <button class="btn btn-ghost btn-sm" type="button" data-switch disabled>
+      <Icon name="switch" size={16} />
+      Flip
+    </button>
+    <button class="btn btn-ghost btn-sm" type="button" data-torch disabled>
+      <Icon name="flash" size={16} />
+      Torch
+    </button>
+    <button class="btn btn-ghost btn-sm" type="button" data-stop disabled>
+      <Icon name="stop" size={16} />
+      Stop
+    </button>
+    <label class="btn btn-ghost btn-sm file-btn">
+      <Icon name="upload" size={16} />
+      Upload photo
+      <input type="file" accept="image/*" data-file hidden />
+    </label>
+  </div>
+
+  <div class="scan-result" data-result data-state="idle" aria-live="polite">
+    <span class="result-icon" data-result-icon aria-hidden="true"><Icon name="qr" size={20} /></span>
+    <div class="stack stack-sm result-body">
+      <p class="result-name" data-result-title>Ready when you are</p>
+      <p class="result-detail" data-result-text>
+        {mode === 'visit'
+          ? 'Start the camera, then hold the visitor’s QR inside the frame.'
+          : 'Start the camera and scan the visitor pass to check their stamps.'}
+      </p>
+    </div>
+  </div>
+
+  <details class="manual">
+    <summary>Type a pass code instead</summary>
+    <form class="row manual-form" data-manual>
+      <input class="input" name="code" placeholder="gcf:v1:…" autocomplete="off" spellcheck="false" aria-label="Pass code" />
+      <button class="btn btn-dark btn-sm" type="submit">Check</button>
+    </form>
+  </details>
+
+  {
+    mode === 'visit' && (
+      <div class="stack stack-sm history-wrap">
+        <div class="spread">
+          <span class="eyebrow">This session</span>
+          <span class="tiny muted" data-history-count>0 scans</span>
+        </div>
+        <div class="history" data-history>
+          <p class="tiny muted">Scans you make on this device appear here.</p>
+        </div>
+      </div>
+    )
+  }
+</section>
+
+<script>
+  import QrScanner from 'qr-scanner';
+  import workerUrl from 'qr-scanner/qr-scanner-worker.min.js?url';
+
+  QrScanner.WORKER_PATH = workerUrl;
+
+  const root = document.querySelector<HTMLElement>('[data-scanner]');
+  if (root) {
+    const mode = root.dataset.mode === 'redeem' ? 'redeem' : 'visit';
+    const endpoint = root.dataset.endpoint ?? '/api/visit';
+    const employer = root.dataset.employer ?? '';
+
+    const video = root.querySelector<HTMLVideoElement>('[data-video]');
+    const stage = root.querySelector<HTMLElement>('[data-stage]');
+    const placeholder = root.querySelector<HTMLElement>('[data-placeholder]');
+    const frame = root.querySelector<HTMLElement>('[data-frame]');
+    const startButton = root.querySelector<HTMLButtonElement>('[data-start]');
+    const stopButton = root.querySelector<HTMLButtonElement>('[data-stop]');
+    const switchButton = root.querySelector<HTMLButtonElement>('[data-switch]');
+    const torchButton = root.querySelector<HTMLButtonElement>('[data-torch]');
+    const fileInput = root.querySelector<HTMLInputElement>('[data-file]');
+    const manualForm = root.querySelector<HTMLFormElement>('[data-manual]');
+
+    const result = root.querySelector<HTMLElement>('[data-result]');
+    const resultIcon = root.querySelector<HTMLElement>('[data-result-icon]');
+    const resultTitle = root.querySelector<HTMLElement>('[data-result-title]');
+    const resultText = root.querySelector<HTMLElement>('[data-result-text]');
+
+    const iconPaths: Record<string, string> = {
+      check: '<path d="M4.5 12.5l4.5 4.5 10-10"/>',
+      clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+      warning: '<path d="M12 4.5 21 20H3l9-15.5Z"/><path d="M12 10v4.5M12 17.2v.3"/>',
+      qr: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3v3h-3zM20 14h1M14 20h3M20 18v3"/>',
+    };
+
+    let scanner: QrScanner | null = null;
+    let paused = false;
+    let starting = false;
+    let scanCount = 0;
+    let audioContext: AudioContext | null = null;
+
+    const escapeHtml = (value: string) =>
+      value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    function setIcon(name: keyof typeof iconPaths) {
+      if (!resultIcon) return;
+      resultIcon.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${iconPaths[name]}</svg>`;
+    }
+
+    function setResult(state: 'idle' | 'pending' | 'ok' | 'warn' | 'error', title: string, html: string) {
+      if (!result) return;
+      result.dataset.state = state;
+      if (resultTitle) resultTitle.textContent = title;
+      if (resultText) resultText.innerHTML = html;
+      setIcon(state === 'ok' ? 'check' : state === 'warn' ? 'warning' : state === 'error' ? 'warning' : state === 'pending' ? 'clock' : 'qr');
+    }
+
+    function beep(ok: boolean) {
+      try {
+        audioContext ??= new AudioContext();
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.type = 'sine';
+        oscillator.frequency.value = ok ? 880 : 320;
+        gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.09, audioContext.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.22);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.24);
+      } catch {
+        /* Audio is a nicety, never a requirement. */
+      }
+    }
+
+    function buzz(pattern: number | number[]) {
+      try {
+        navigator.vibrate?.(pattern);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    interface ScanResponse {
+      ok?: boolean;
+      already?: boolean;
+      completed?: boolean;
+      message?: string;
+      error?: string;
+      visitor?: { name: string; email: string; course: string; gradYear: number | null };
+      employer?: { name: string };
+      visitedCount?: number;
+      total?: number;
+      remaining?: { slug: string; name: string }[];
+      redeemedAt?: string | null;
+    }
+
+    function visitorMarkup(data: ScanResponse) {
+      const visitor = data.visitor;
+      if (!visitor) return '';
+      const meta = [visitor.course, visitor.gradYear ? `Class of ${visitor.gradYear}` : null].filter(Boolean).join(' · ');
+      const counts =
+        typeof data.visitedCount === 'number' && typeof data.total === 'number'
+          ? `${data.visitedCount} of ${data.total} stands`
+          : '';
+
+      const email = `<button class="result-email" type="button" data-copy="${escapeHtml(visitor.email)}" title="Copy email"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 3h-6A3.5 3.5 0 0 0 3 6.5v6A2.5 2.5 0 0 0 5.5 15"/></svg>${escapeHtml(visitor.email)}</button>`;
+
+      return `<span class="result-detail">${escapeHtml(meta)}${counts ? ` · ${escapeHtml(counts)}` : ''}</span>${email}`;
+    }
+
+    function addHistory(name: string, note: string) {
+      const historyList = root?.querySelector<HTMLElement>('[data-history]');
+      const counter = root?.querySelector<HTMLElement>('[data-history-count]');
+      if (!historyList) return;
+      scanCount += 1;
+      if (counter) counter.textContent = `${scanCount} scan${scanCount === 1 ? '' : 's'}`;
+      const empty = historyList.querySelector('p.tiny');
+      if (empty) empty.remove();
+      const row = document.createElement('div');
+      row.className = 'history-row';
+      row.innerHTML = `<strong>${escapeHtml(name)}</strong><span class="muted">${escapeHtml(note)}</span><time>${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</time>`;
+      historyList.insertBefore(row, historyList.firstChild);
+      while (historyList.children.length > 30) historyList.lastElementChild?.remove();
+    }
+
+    async function submitPass(code: string) {
+      if (!code || paused) return;
+      paused = true;
+      setResult('pending', 'Checking pass…', 'One moment.');
+
+      try {
+        const body: Record<string, unknown> = { data: code };
+        if (mode === 'visit') body.employer = employer;
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const payload = (await response.json().catch(() => ({}))) as ScanResponse;
+
+        if (response.status === 401) {
+          setResult('error', 'Staff session expired', 'Reload the page and enter the booth passcode again.');
+          beep(false);
+          setTimeout(() => window.location.reload(), 1600);
+          return;
+        }
+
+        if (!response.ok) {
+          setResult('error', 'Pass not recognised', escapeHtml(payload.error ?? 'Try again with a clearer scan.'));
+          beep(false);
+          buzz([40, 60, 40]);
+          return;
+        }
+
+        if (mode === 'visit') {
+          const name = payload.visitor?.name ?? 'Visitor';
+          const note = payload.already ? 'already scanned' : 'visit recorded';
+          setResult(
+            payload.already ? 'warn' : 'ok',
+            name,
+            `${visitorMarkup(payload)}<span class="result-detail">${escapeHtml(
+              payload.already
+                ? `${name} was already scanned here.`
+                : payload.completed
+                  ? 'Final stand complete — send them to the chocolate counter.'
+                  : `Visit recorded. ${payload.remaining?.length ?? 0} stand(s) still to visit.`,
+            )}</span>`,
+          );
+          addHistory(name, note);
+          beep(!payload.already);
+          buzz(payload.already ? [30, 40, 30] : 60);
+          return;
+        }
+
+        // Chocolate counter
+        if (payload.completed) {
+          setResult(
+            'ok',
+            payload.already ? 'Already collected' : 'Chocolate unlocked',
+            `${visitorMarkup(payload)}<span class="result-detail">${escapeHtml(
+              payload.already ? `${payload.visitor?.name ?? 'This visitor'} has already had their chocolate.` : 'All seven stands complete. Hand over the chocolate.',
+            )}</span>`,
+          );
+          beep(true);
+          buzz([60, 40, 60]);
+        } else {
+          const missing = (payload.remaining ?? []).map((item) => item.name).join(', ');
+          setResult(
+            'warn',
+            'Not quite finished',
+            `${visitorMarkup(payload)}<span class="result-detail">Still missing: ${escapeHtml(missing || 'some stands')}.</span>`,
+          );
+          beep(false);
+          buzz(80);
+        }
+      } catch {
+        setResult('error', 'Network hiccup', 'The scan was not saved. Check the connection and scan again.');
+        beep(false);
+      } finally {
+        // Give the volunteer a moment to read the result before scanning again.
+        window.setTimeout(() => {
+          paused = false;
+        }, mode === 'visit' ? 2200 : 4000);
+      }
+    }
+
+    function showLive(live: boolean) {
+      if (placeholder) placeholder.hidden = live;
+      if (frame) frame.hidden = !live;
+      if (startButton) startButton.disabled = live;
+      if (stopButton) stopButton.disabled = !live;
+      if (switchButton) switchButton.disabled = !live;
+      if (stage) stage.dataset.live = String(live);
+    }
+
+    async function start() {
+      if (starting || !video) return;
+      starting = true;
+      try {
+        if (!scanner) {
+          scanner = new QrScanner(video, (scanResult) => {
+            void submitPass(scanResult.data);
+          }, {
+            preferredCamera: 'environment',
+            maxScansPerSecond: 8,
+            highlightScanRegion: false,
+            highlightCodeOutline: false,
+            returnDetailedScanResult: true,
+          });
+        }
+        await scanner.start();
+        showLive(true);
+        audioContext ??= new AudioContext();
+        try {
+          const hasFlash = await scanner.hasFlash();
+          if (torchButton) torchButton.disabled = !hasFlash;
+        } catch {
+          /* torch is optional */
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setResult(
+          'error',
+          'Camera unavailable',
+          `${escapeHtml(message)}. Allow camera access in the browser, or use “Upload photo”.`,
+        );
+      } finally {
+        starting = false;
+      }
+    }
+
+    async function stop() {
+      scanner?.stop();
+      showLive(false);
+      if (torchButton) torchButton.disabled = true;
+    }
+
+    startButton?.addEventListener('click', () => void start());
+    stopButton?.addEventListener('click', () => void stop());
+
+    switchButton?.addEventListener('click', async () => {
+      if (!scanner) return;
+      try {
+        scanner.stop();
+        await scanner.start();
+      } catch {
+        setResult('error', 'Could not flip the camera', 'Try stopping and starting the camera again.');
+      }
+    });
+
+    torchButton?.addEventListener('click', async () => {
+      if (!scanner) return;
+      try {
+        const on = scanner.isFlashOn();
+        await scanner.toggleFlash();
+        torchButton.classList.toggle('is-on', !on);
+      } catch {
+        /* not supported on this device */
+      }
+    });
+
+    fileInput?.addEventListener('change', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      try {
+        const decoded = await QrScanner.scanImage(file, { returnDetailedScanResult: true });
+        void submitPass(decoded.data);
+      } catch {
+        setResult('error', 'No QR found', 'That image did not contain a readable pass. Try a sharper photo.');
+      } finally {
+        fileInput.value = '';
+      }
+    });
+
+    manualForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const input = manualForm.querySelector<HTMLInputElement>('input[name="code"]');
+      if (!input?.value.trim()) return;
+      void submitPass(input.value.trim());
+      input.value = '';
+    });
+
+    root.addEventListener('click', async (event) => {
+      const target = (event.target as HTMLElement).closest<HTMLElement>('[data-copy]');
+      if (!target) return;
+      const email = target.dataset.copy ?? '';
+      try {
+        await navigator.clipboard.writeText(email);
+        target.classList.add('is-copied');
+        const original = target.innerHTML;
+        target.textContent = 'Copied';
+        window.setTimeout(() => {
+          target.innerHTML = original;
+          target.classList.remove('is-copied');
+        }, 1200);
+      } catch {
+        /* clipboard can be blocked; the email is still on screen */
+      }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible' && scanner) {
+        scanner.stop();
+        showLive(false);
+      }
+    });
+  }
+</script>
+
+<style>
+  .scanner {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--leaf-400);
+    box-shadow: 0 0 0 3px rgba(67, 192, 125, 0.2);
+  }
+
+  @media (min-width: 900px) {
+    .scan-stage {
+      max-height: 56vh;
+    }
+  }
+
+  .scan-stage[data-live='true'] {
+    aspect-ratio: 4 / 5;
+    max-height: 70vh;
+  }
+
+  .file-btn {
+    cursor: pointer;
+  }
+
+  .result-body {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .manual {
+    border-top: 1px dashed rgba(14, 59, 39, 0.14);
+    padding-top: 0.9rem;
+  }
+
+  .manual summary {
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--forest-800);
+  }
+
+  .manual-form {
+    margin-top: 0.7rem;
+    flex-wrap: nowrap;
+  }
+
+  .manual-form .input {
+    min-height: 40px;
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    font-size: 0.85rem;
+  }
+
+  .history-wrap {
+    border-top: 1px dashed rgba(14, 59, 39, 0.14);
+    padding-top: 0.9rem;
+  }
+
+  .result-email.is-copied {
+    background: rgba(23, 119, 74, 0.14);
+    color: var(--green-600);
+  }
+
+  .btn.is-on {
+    background: var(--lime-300);
+    color: var(--forest-900);
+    border-color: transparent;
+  }
+</style>

@@ -1,0 +1,30 @@
+---
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+---
+
+<Base title="Page not found" noindex>
+  <div class="shell">
+    <section class="card card-pad stack stack-md not-found">
+      <span class="eyebrow">404</span>
+      <h1>This stand isn’t on the map.</h1>
+      <p class="muted">
+        The page you followed does not exist. Head back to your pass, or ask a volunteer at the desk.
+      </p>
+      <div class="row">
+        <a class="btn btn-primary" href="/dashboard">
+          <Icon name="qr" size={18} />
+          My pass
+        </a>
+        <a class="btn btn-ghost" href="/">Register</a>
+      </div>
+    </section>
+  </div>
+</Base>
+
+<style>
+  .not-found {
+    max-width: 560px;
+    margin: 8vh auto;
+  }
+</style>

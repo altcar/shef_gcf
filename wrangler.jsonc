@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gcf",
+  "main": "./dist/_worker.js/index.js",
+  "compatibility_date": "2026-02-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gcf",
+      "database_id": "d712e33f-0584-4eb0-a5c2-7a10f6f56ce6",
+      "migrations_dir": "db/migrations"
+    }
+  ],
+  "vars": {
+    "PUBLIC_SITE_URL": "https://gcf.hheylau.workers.dev"
+  }
+}

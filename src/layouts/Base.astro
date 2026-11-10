@@ -1,0 +1,71 @@
+---
+import '@fontsource-variable/inter';
+import '@fontsource-variable/fraunces';
+import '../styles/global.css';
+import Brand from '../components/Brand.astro';
+
+interface Props {
+  title?: string;
+  description?: string;
+  noindex?: boolean;
+  /** Show the staff/booth link in the header. */
+  staffLink?: boolean;
+}
+
+const {
+  title = 'Green Career Fair · Visitor pass',
+  description = 'One QR pass for every employer at the Green Career Fair. Meet all seven stands and collect your chocolate.',
+  noindex = false,
+  staffLink = true,
+} = Astro.props;
+
+const fullTitle = title.includes('Green Career Fair') ? title : `${title} · Green Career Fair`;
+---
+
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0e3b27" />
+    <meta name="color-scheme" content="light" />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta name="twitter:card" content="summary" />
+    <meta name="generator" content={Astro.generator} />
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <div class="topbar-inner">
+          <Brand />
+          <nav class="topbar-nav" aria-label="Primary">
+            <a href="/dashboard">My pass</a>
+            {staffLink && <a href="/staff">Booth desk</a>}
+          </nav>
+        </div>
+      </header>
+
+      <main>
+        <slot />
+      </main>
+
+      <footer class="site-footer">
+        <div class="shell">
+          <span>© {new Date().getFullYear()} Green Career Fair · Built on Cloudflare Workers</span>
+          <span class="row" style="gap: 1rem">
+            <a href="/dashboard">Visitor pass</a>
+            <a href="/staff">Staff &amp; booths</a>
+          </span>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

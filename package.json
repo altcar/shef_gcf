@@ -1,19 +1,34 @@
 {
-  "name": "virtual-venus",
+  "name": "gcf",
+  "private": true,
   "type": "module",
-  "version": "0.0.1",
+  "version": "1.0.0",
+  "description": "Green Career Fair visitor pass, employer scanner and chocolate reward desk.",
   "scripts": {
-    "dev": "astro dev --host",
-    "build": "astro build",
-    "preview": "astro preview",
-    "astro": "astro"
+    "dev": "astro dev",
+    "build": "astro build && node scripts/postbuild.mjs",
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "check": "astro check",
+    "db:migrate": "wrangler d1 migrations apply gcf --remote",
+    "db:migrate:local": "wrangler d1 migrations apply gcf --local"
   },
   "dependencies": {
-    "@astrojs/vercel": "^9.0.2",
-    "@yudiel/react-qr-scanner": "^1.4.3",
-    "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
+    "@astrojs/cloudflare": "^12.6.10",
+    "@fontsource-variable/fraunces": "^5.2.8",
+    "@fontsource-variable/inter": "^5.2.8",
     "astro": "^5.16.3",
-    "mysql2": "^3.15.3"
+    "qr-scanner": "^1.4.2",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.6",
+    "@cloudflare/workers-types": "^5.20261110.1",
+    "@types/qrcode": "^1.5.6",
+    "typescript": "^5.9.3",
+    "wrangler": "4.160.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

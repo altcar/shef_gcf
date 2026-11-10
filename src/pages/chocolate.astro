@@ -1,337 +1,124 @@
 ---
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+import Scanner from '../components/Scanner.astro';
+import { isStaff } from '../lib/auth';
+import { getDb } from '../lib/db';
+import { totalEmployers } from '../lib/employers';
+import { sessionSecret } from '../lib/env';
+
+const env = Astro.locals.runtime.env;
+const secret = sessionSecret(env);
+if (!(await isStaff(Astro.request, secret))) {
+  return Astro.redirect(`/staff?next=${encodeURIComponent('/chocolate')}`, 302);
+}
+
+const startOfDay = new Date();
+startOfDay.setUTCHours(0, 0, 0, 0);
+const db = getDb(env);
+const stats = await db
+  .prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM redemptions) AS total,
+       (SELECT COUNT(*) FROM redemptions WHERE redeemed_at >= ?) AS today`,
+  )
+  .bind(startOfDay.toISOString())
+  .first<{ total: number; today: number }>();
+
+const total = Number(stats?.total ?? 0);
+const today = Number(stats?.today ?? 0);
 ---
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>qr-scanner Demo</title>
-  <!-- <link rel="stylesheet" href="./style.css"> -->
-</head>
-<body>
-  <main class="wrap">
-    <header class="header">
-      <div>
-        <p class="eyebrow">Green Career Fair</p>
-        <h2>Chocolate Counter</h2>
-        <p class="sub">Scan a visitor QR to verify all company visits.</p>
+
+<Base title="Chocolate counter" description="Verify all seven stands before handing over the chocolate." noindex>
+  <div class="shell stack stack-lg">
+    <header class="spread">
+      <div class="row" style="gap: 1rem">
+        <span class="choc-mark" aria-hidden="true"><Icon name="chocolate" size={26} /></span>
+        <div class="stack stack-sm">
+          <span class="eyebrow" style="color: var(--choc-500)">Reward desk</span>
+          <h1>Chocolate counter</h1>
+          <p class="muted tiny">{totalEmployers} stands must be ticked before a bar is handed over.</p>
+        </div>
+      </div>
+      <div class="row">
+        <a class="btn btn-ghost btn-sm" href="/staff">
+          <Icon name="users" size={16} />
+          Staff desk
+        </a>
+        <form method="post" action="/api/staff/logout">
+          <button class="btn btn-ghost btn-sm" type="submit">
+            <Icon name="logout" size={16} />
+            Lock
+          </button>
+        </form>
       </div>
     </header>
 
-    <div class="controls">
-      <button id="startBtn">Start camera</button>
-      <button id="switchBtn" disabled>Switch camera</button>
-      <button id="flashBtn" disabled>Toggle flash</button>
-      <button id="stopBtn" disabled>Stop</button>
-      <label class="file">
-        <input id="fileInput" type="file" accept="image/*" />
-        <span>Scan from image…</span>
-      </label>
+    <div class="choc-grid">
+      <Scanner mode="redeem" accent="#7b4526" />
+
+      <aside class="stack stack-md">
+        <section class="card card-pad choc-banner stack stack-sm">
+          <div class="row" style="justify-content: space-between; align-items: flex-start">
+            <span class="eyebrow" style="color: #f0c98a">Today</span>
+            <span class="chip chip-lime">Free</span>
+          </div>
+          <h2 class="big-number">{today}</h2>
+          <p class="muted tiny">chocolate bar{today === 1 ? '' : 's'} handed out today · {total} in total</p>
+          <div class="progress" style="background: rgba(255,255,255,.16)">
+            <span style="width: 100%; background: linear-gradient(90deg,#d9a44a,#f0c98a)"></span>
+          </div>
+        </section>
+
+        <section class="card card-pad stack stack-sm">
+          <span class="eyebrow">The rule</span>
+          <h3>All seven, or no bar</h3>
+          <p class="muted tiny">
+            The scanner checks the visitor’s record in real time. If a stand is missing, it lists exactly which
+            ones — send them back to finish the lap.
+          </p>
+          <p class="tiny muted">
+            A pass can only be redeemed once. Repeat scans show the original redemption time, so a queue can move
+            quickly without double-giving.
+          </p>
+        </section>
+      </aside>
     </div>
-
-    <div class="stage">
-      <video id="video" playsinline muted></video>
-      <!-- qr-scanner can render its own overlays if enabled -->
-      <div id="overlayContainer"></div>
-    </div>
-
-    <p class="result"><strong>Result:</strong> <span id="result">—</span></p>
-    <div class="status" id="status"></div>
-  </main>
-
-  <script type="module">
-    import QrScanner from 'https://unpkg.com/qr-scanner@1.4.2/qr-scanner.min.js';
-
-    const video = document.getElementById('video');
-    const overlayContainer = document.getElementById('overlayContainer');
-    const resultEl = document.getElementById('result');
-    const statusEl = document.getElementById('status');
-
-    const startBtn = document.getElementById('startBtn');
-    const switchBtn = document.getElementById('switchBtn');
-    const flashBtn = document.getElementById('flashBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const fileInput = document.getElementById('fileInput');
-
-    let facingMode = 'environment'; // 'user'
-    let qrScanner = null;
-
-    function setButtons(state) {
-      const running = state === 'running';
-      startBtn.disabled = running;
-      switchBtn.disabled = !running;
-      stopBtn.disabled = !running;
-      // flashBtn gets enabled dynamically after start() if supported
-    }
-
-    function makeScanner() {
-      if (qrScanner) {
-        qrScanner.stop();
-      }
-      qrScanner = new QrScanner(
-        video,
-        (result) => {
-          console.log('decoded qr code:', result);
-
-          (async () => {
-            try {
-              const payload = typeof result === 'string' ? { data: result } : result;
-              const resp = await fetch('/api/chocolate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-              });
-
-              if (!resp.ok) {
-                const txt = await resp.text();
-                if (statusEl) {
-                  statusEl.textContent = `Scan failed: ${txt || resp.status}`;
-                  statusEl.dataset.state = 'error';
-                }
-                return;
-              }
-
-              const json = await resp.json().catch(() => null);
-              const completed = Boolean(json?.completed ?? json?.success);
-              const already = Boolean(json?.data?.already ?? json?.already);
-              if (statusEl) {
-                if (completed && already) {
-                  statusEl.textContent = 'All company visits complete. Already redeemed.';
-                  statusEl.dataset.state = 'ok';
-                } else if (completed) {
-                  statusEl.textContent = 'All company visits complete. Marked as redeemed.';
-                  statusEl.dataset.state = 'ok';
-                } else {
-                  statusEl.textContent = 'Visitor still missing some company visits.';
-                  statusEl.dataset.state = 'warn';
-                }
-              }
-            } catch (err) {
-              console.error('Error posting scan result:', err);
-              if (statusEl) {
-                statusEl.textContent = 'Network error while checking visits.';
-                statusEl.dataset.state = 'error';
-              }
-            }
-          })();
-          // stop(); // stop scanning after first result
-          // If options are provided, result is an object with { data, cornerPoints }
-          resultEl.textContent = typeof result === 'string' ? result : result.data;
-        },
-        {
-          preferredCamera: facingMode,           // 'environment' or 'user'
-          highlightScanRegion: true,             // draw the scan region
-          highlightCodeOutline: true,            // draw outline on detected code
-          returnDetailedScanResult: true,        // ensure { data, cornerPoints }
-        }
-      );
-    }
-
-    async function start() {
-      try {
-        if (!qrScanner) makeScanner();
-        await qrScanner.start(); // prompts for permission if needed
-
-        // Enable/disable flash button depending on support
-        const hasFlash = await qrScanner.hasFlash();
-        flashBtn.disabled = !hasFlash;
-
-        setButtons('running');
-      } catch (e) {
-        console.error(e);
-        alert('Could not start the camera. Ensure https:// or http://localhost and grant camera access.');
-      }
-    }
-
-    async function stop() {
-      if (qrScanner) await qrScanner.stop();
-      setButtons('idle');
-      flashBtn.disabled = true;
-    }
-
-    async function switchCamera() {
-      facingMode = (facingMode === 'environment') ? 'user' : 'environment';
-      makeScanner();
-      await start();
-    }
-
-    async function toggleFlash() {
-      try {
-        const on = await qrScanner.isFlashOn();
-        await qrScanner.turnFlash(!on);
-      } catch {
-        // Ignore if not supported
-      }
-    }
-
-    // Scan a still image
-    fileInput.addEventListener('change', async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      try {
-        const res = await QrScanner.scanImage(file, { returnDetailedScanResult: true });
-        resultEl.textContent = res.data;
-      } catch {
-        resultEl.textContent = 'No QR found in image';
-      }
-    });
-
-    // Wire up UI
-    startBtn.addEventListener('click', start);
-    stopBtn.addEventListener('click', stop);
-    switchBtn.addEventListener('click', switchCamera);
-    flashBtn.addEventListener('click', toggleFlash);
-
-    // Initialize UI
-    setButtons('idle');
-  </script>
-
-
-
-
-
+  </div>
+</Base>
 
 <style>
-  :root { --w: min(92vw, 820px); }
+  .choc-grid {
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    align-items: start;
+  }
 
-body {
-  font: 16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  margin: 0;
-  padding: 2rem;
-  background: radial-gradient(circle at top, #e9f2e7 0%, #f6f2e8 40%, #f7f5f0 100%);
-  color: #102317;
-}
+  .choc-mark {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #4a2716, #7b4526);
+    color: #f7d9b6;
+    box-shadow: 0 12px 24px -14px rgba(74, 39, 22, 0.9);
+  }
 
-.wrap {
-  margin: 0 auto;
-  width: var(--w);
-}
+  h1 {
+    font-size: clamp(1.9rem, 3.4vw, 2.7rem);
+  }
 
-.header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1.5rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-}
+  .big-number {
+    font-size: 3rem;
+    line-height: 1;
+    color: #fff4e4;
+  }
 
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: #2f6a3b;
-  margin: 0 0 0.5rem 0;
-}
-
-.sub {
-  margin: 0.5rem 0 0 0;
-  color: #375744;
-}
-
-h2 {
-  margin-bottom: 1rem;
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-
-.controls {
-  display: flex;
-  gap: .5rem;
-  flex-wrap: wrap;
-  margin-bottom: .75rem;
-}
-
-button, .file {
-  padding: .5rem .75rem;
-  border: none;
-  border-radius: 6px;
-  background: #0057e7;
-  color: white;
-  cursor: pointer;
-  font-size: .9rem;
-  transition: background .2s;
-}
-
-button:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-
-button:hover:enabled,
-.file:hover {
-  background: #003f9e;
-}
-
-.file {
-  display: inline-flex;
-  align-items: center;
-  gap: .5rem;
-}
-
-.file input {
-  display: none;
-}
-
-.stage {
-  position: relative;
-  max-height: 60vh;
-  aspect-ratio: 3 / 4;
-  background: #111;
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-#overlayContainer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.result {
-  margin-top: .75rem;
-  font-size: 1.05rem;
-  padding: .5rem;
-  background: #f0f0f0;
-  border-radius: 6px;
-}
-
-.status {
-  margin-top: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-radius: 10px;
-  font-weight: 600;
-  background: #f3f8f2;
-  color: #2b3d30;
-  min-height: 1.5rem;
-}
-
-.status[data-state="ok"] {
-  background: #e4f4ea;
-  color: #1f6a3f;
-  border: 1px solid rgba(31, 106, 63, 0.2);
-}
-
-.status[data-state="warn"] {
-  background: #fdf2d1;
-  color: #8b5b00;
-  border: 1px solid rgba(139, 91, 0, 0.2);
-}
-
-.status[data-state="error"] {
-  background: #fde2e1;
-  color: #9d2a25;
-  border: 1px solid rgba(157, 42, 37, 0.2);
-}
+  @media (max-width: 900px) {
+    .choc-grid {
+      grid-template-columns: 1fr;
+    }
+  }
 </style>
-</body>
-</html>

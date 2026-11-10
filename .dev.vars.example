@@ -1,0 +1,5 @@
+# Copy to `.dev.vars` for `npm run dev`.
+# Passcode volunteers type on booth and chocolate devices.
+STAFF_CODE=green-fair-demo
+# Any long random string: `openssl rand -hex 32`.
+SESSION_SECRET=dev-only-not-a-real-secret-change-me

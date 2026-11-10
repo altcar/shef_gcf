@@ -1,16 +1,14 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
+import cloudflare from '@astrojs/cloudflare';
 
-// import react from '@astrojs/react';
-
-import vercel from '@astrojs/vercel';
-
-// https://astro.build/config  // output: 'server',integrations: [react()],
+// https://astro.build/config
 export default defineConfig({
- 
-  adapter: vercel(),
- 
-  server: {
-    allowedHosts: ['sgcf25.shalify.eu.org', 'gcf-acar.vercel.app']
-  }
+  site: 'https://gcf.hheylau.workers.dev',
+  output: 'server',
+  adapter: cloudflare({
+    // Static assets are served straight from the Workers assets binding.
+    imageService: 'passthrough',
+    platformProxy: { enabled: true },
+  }),
 });

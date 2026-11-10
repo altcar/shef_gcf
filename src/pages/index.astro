@@ -1,8 +1,305 @@
 ---
-import Welcome from '../components/Welcome.astro';
-import Layout from '../layouts/Layout.astro';
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+import { currentVisitorId } from '../lib/auth';
+import { employers, totalEmployers } from '../lib/employers';
+import { sessionSecret } from '../lib/env';
+
+const env = Astro.locals.runtime.env;
+const visitorId = await currentVisitorId(Astro.request, sessionSecret(env));
+if (visitorId) return Astro.redirect('/dashboard', 302);
+
 ---
 
-<Layout>
-	<Welcome />
-</Layout>
+<Base
+  title="Green Career Fair · Register"
+  description="Register once for the Green Career Fair, get a personal QR pass, meet all seven employers and collect your chocolate."
+>
+  <div class="shell">
+    <section class="hero-grid">
+      <div class="stack stack-lg">
+        <div class="stack stack-sm">
+          <span class="eyebrow rise">Green Career Fair · Register</span>
+          <h1 class="rise">Meet every stand.<br /><em>Earn the chocolate.</em></h1>
+          <p class="lead rise-2">
+            One registration, one QR pass. Every employer scans you in as you visit their stand — clear all
+            {totalEmployers} and the chocolate counter is waiting.
+          </p>
+        </div>
+
+        <div class="row rise-2">
+          <span class="chip"><Icon name="users" size={15} /> {totalEmployers} employers</span>
+          <span class="chip"><Icon name="qr" size={15} /> One scan per stand</span>
+          <span class="chip chip-choc"><Icon name="chocolate" size={15} /> Free chocolate</span>
+        </div>
+
+        <div class="step-list rise-3">
+          <article class="step">
+            <h3>Register</h3>
+            <p class="muted tiny">Name, university email, course and graduation year. Takes twenty seconds.</p>
+          </article>
+          <article class="step">
+            <h3>Get scanned</h3>
+            <p class="muted tiny">Show your QR pass at each stand. Employers see your details and log the visit.</p>
+          </article>
+          <article class="step">
+            <h3>Collect</h3>
+            <p class="muted tiny">All seven stands ticked? Head to the chocolate counter for your reward.</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="card card-pad rise-2" id="register">
+        <div class="card-head">
+          <div class="stack stack-sm">
+            <span class="eyebrow">Visitor pass</span>
+            <h2>Get your QR</h2>
+            <p class="muted tiny">Already registered? Use the same email and we will bring your pass back.</p>
+          </div>
+        </div>
+
+        <form id="register-form" class="stack stack-md" novalidate>
+          <div class="form-grid">
+            <div class="field span-2">
+              <label for="name">Full name</label>
+              <input class="input" id="name" name="name" type="text" autocomplete="name" placeholder="Jane Doe" maxlength="80" required />
+              <p class="field-error" data-error-for="name"></p>
+            </div>
+
+            <div class="field span-2">
+              <label for="email">University email</label>
+              <input class="input" id="email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="jane.doe@sheffield.ac.uk" maxlength="160" required />
+              <p class="field-error" data-error-for="email"></p>
+            </div>
+
+            <div class="field">
+              <label for="course">Course</label>
+              <input class="input" id="course" name="course" type="text" autocomplete="organization-title" placeholder="BSc Computer Science" maxlength="120" required />
+              <p class="field-error" data-error-for="course"></p>
+            </div>
+
+            <div class="field">
+              <label for="gradYear">Graduation year</label>
+              <input class="input" id="gradYear" name="gradYear" type="number" inputmode="numeric" min="2015" max="2100" step="1" placeholder="2026" />
+              <p class="field-error" data-error-for="gradYear"></p>
+            </div>
+          </div>
+
+          <button class="btn btn-primary btn-block" id="submit-button" type="submit">
+            Create my pass
+            <Icon name="arrow" size={18} />
+          </button>
+
+          <div id="form-status" class="alert" role="status" aria-live="polite" hidden></div>
+
+          <p class="tiny muted">
+            Showing your QR shares your name, course, graduation year and email with the employer who scans it.
+            You can log out of the pass at any time.
+          </p>
+        </form>
+      </div>
+    </section>
+
+    <section class="section" id="employers">
+      <div class="section-head">
+        <div class="stack stack-sm">
+          <span class="eyebrow">The line-up</span>
+          <h2>Seven stands, one lap</h2>
+        </div>
+        <p class="muted section-note">Every stand on the floor is listed below. Your dashboard ticks them off as you go.</p>
+      </div>
+
+      <div class="employer-grid employer-grid-lg">
+        {
+          employers.map((employer) => (
+            <article class="employer-card">
+              <span class="monogram" style={`--accent:${employer.accent}`}>{employer.monogram}</span>
+              <div class="stack stack-sm">
+                <h3>{employer.short}</h3>
+                <p class="muted tiny">{employer.focus}</p>
+              </div>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="card choc-banner choc-inner card-pad">
+        <div class="stack stack-sm" style="max-width: 58ch">
+          <span class="eyebrow" style="color:#f0c98a">The chocolate clause</span>
+          <h2>Finish the lap, take the bar.</h2>
+          <p class="muted">
+            Show your pass at the chocolate counter once every stand has scanned you in. The counter checks your
+            stamps first — no shortcuts, plenty of chocolate.
+          </p>
+        </div>
+        <div class="choc-side">
+          <span class="icon-badge" aria-hidden="true"><Icon name="chocolate" size={30} /></span>
+          <div>
+            <p class="choc-count">{totalEmployers}</p>
+            <p class="tiny muted">stands for one bar</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</Base>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('#register-form');
+  const status = document.querySelector<HTMLElement>('#form-status');
+  const submit = document.querySelector<HTMLButtonElement>('#submit-button');
+
+  function clearErrors() {
+    for (const el of document.querySelectorAll<HTMLElement>('[data-error-for]')) el.textContent = '';
+    for (const el of document.querySelectorAll<HTMLInputElement>('#register-form .input')) {
+      el.removeAttribute('aria-invalid');
+    }
+    if (status) status.hidden = true;
+  }
+
+  function showErrors(fields: string[], message: string) {
+    for (const field of fields) {
+      const input = document.querySelector<HTMLInputElement>(`#register-form [name="${field}"]`);
+      const slot = document.querySelector<HTMLElement>(`[data-error-for="${field}"]`);
+      if (input) input.setAttribute('aria-invalid', 'true');
+      if (slot) slot.textContent = 'Check this field';
+    }
+    if (status) {
+      status.hidden = false;
+      status.className = 'alert alert-danger';
+      status.textContent = message;
+    }
+  }
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    clearErrors();
+
+    const data = Object.fromEntries(new FormData(form).entries());
+    if (submit) submit.disabled = true;
+
+    try {
+      const response = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        invalidFields?: string[];
+        existing?: boolean;
+      };
+
+      if (!response.ok) {
+        showErrors(payload.invalidFields ?? [], payload.error ?? 'Registration failed. Please try again.');
+        return;
+      }
+
+      if (status) {
+        status.hidden = false;
+        status.className = 'alert';
+        status.textContent = payload.existing
+          ? 'Welcome back — reopening your pass…'
+          : 'You are in. Taking you to your pass…';
+      }
+      window.location.assign('/dashboard');
+    } catch {
+      showErrors([], 'Network error. Check your connection and try again.');
+    } finally {
+      if (submit) submit.disabled = false;
+    }
+  });
+</script>
+
+<style>
+  .lead {
+    font-size: clamp(1.02rem, 1.6vw, 1.18rem);
+    color: #3d5648;
+    max-width: 54ch;
+  }
+
+  h1 em {
+    font-style: italic;
+    color: var(--green-600);
+  }
+
+  .section {
+    margin-top: clamp(3rem, 7vw, 5.5rem);
+  }
+
+  .section-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+  }
+
+  .section-note {
+    max-width: 40ch;
+    font-size: 0.92rem;
+  }
+
+  .employer-grid-lg {
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 0.9rem;
+  }
+
+  .employer-card {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 1rem 1.05rem;
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(14, 59, 39, 0.09);
+    transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+  }
+
+  .employer-card:hover {
+    transform: translateY(-2px);
+    background: #fff;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .employer-card h3 {
+    font-size: 1rem;
+    letter-spacing: -0.005em;
+  }
+
+  .choc-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .choc-side {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .choc-side .icon-badge {
+    display: grid;
+    place-items: center;
+    width: 62px;
+    height: 62px;
+    border-radius: 20px;
+    background: rgba(217, 164, 74, 0.16);
+    border: 1px solid rgba(240, 201, 138, 0.35);
+    color: #f0c98a;
+  }
+
+  .choc-count {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 600;
+    line-height: 1;
+    color: #fff4e4;
+  }
+</style>

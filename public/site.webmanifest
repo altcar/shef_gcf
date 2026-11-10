@@ -1,0 +1,17 @@
+{
+  "name": "Green Career Fair",
+  "short_name": "GCF Pass",
+  "description": "Your visitor pass for the Green Career Fair — scan at every stand, collect your chocolate.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f7f3e8",
+  "theme_color": "#0e3b27",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

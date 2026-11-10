@@ -1,0 +1,21 @@
+---
+interface Props {
+  href?: string;
+  compact?: boolean;
+}
+const { href = '/', compact = false } = Astro.props;
+---
+
+<a class="brand" href={href} aria-label="Green Career Fair home">
+  <span class="brand-mark" aria-hidden="true">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <path d="M20.2 3.8c.5 8.4-5.4 13.6-12.4 13.6H4.4C4.4 8.9 10.9 3.4 17.6 3.4h2.6Z" fill="currentColor" />
+      <path d="M3.8 21.2c1.9-6 5.6-9.9 10.7-12.6" stroke="#0b2b1c" stroke-width="1.7" stroke-linecap="round" />
+      <circle cx="17.6" cy="8.6" r="1.35" fill="#0b2b1c" opacity="0.55" />
+    </svg>
+  </span>
+  <span class="brand-text">
+    <span class="brand-name">Green Career Fair</span>
+    {!compact && <span class="brand-sub">Visitor pass</span>}
+  </span>
+</a>
