@@ -99,14 +99,16 @@ Pushing to `main` builds and deploys through Cloudflare Workers Builds:
 | Setting | Value |
 | --- | --- |
 | Repository | `altcar/gcf` · branch `main` |
-| Build command | `npm ci` |
+| Build command | `npm run build` |
 | Deploy command | `npx wrangler deploy` |
 | Root directory | `/` |
 | Build variable | `WRANGLER_VERSION=4.160.0` (pinned) |
 | Node version | from `engines.node` (`>=20`) |
 
-`package.json` pins `wrangler@4.160.0` exactly, and `.npmrc` allows the `esbuild`/`workerd`
-install scripts that npm 11 blocks by default. Preview builds (non-`main` branches) use
+`package.json` pins `wrangler@4.160.0` exactly, so CI deploys with the same Wrangler as local
+development. `.npmrc` allows the `esbuild`/`workerd` install scripts that npm 11 blocks by default.
+Workers Builds installs dependencies before it runs the build command, so the build command is just
+`npm run build`. Preview builds (non-`main` branches) use
 `npx wrangler versions upload`.
 
 ## Data
