@@ -59,7 +59,27 @@ export const POST: APIRoute = async ({ request, locals }) => {
       );
     }
 
-    const visitor = await createVisitor(db, { name, email, course, gradYear });
+    let visitor;
+    try {
+      visitor = await createVisitor(db, { name, email, course, gradYear });
+    } catch (error) {
+      // Two devices registering the same email at once: the unique index wins,
+      // so fall back to the pass that was just created by the other request.
+      const raced = await visitorByEmail(db, email);
+      if (!raced) throw error;
+      const cookie = await issueVisitorCookie(request, raced.id, secret);
+      return json(
+        {
+          ok: true,
+          existing: true,
+          message: 'You already have a pass on this email — welcome back.',
+          visitor: { name: raced.name, email: raced.email, course: raced.course, gradYear: raced.grad_year },
+        },
+        200,
+        { 'Set-Cookie': cookie },
+      );
+    }
+
     const cookie = await issueVisitorCookie(request, visitor.id, secret);
 
     return json(

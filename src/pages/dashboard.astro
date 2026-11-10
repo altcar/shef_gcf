@@ -2,7 +2,7 @@
 import QRCode from 'qrcode';
 import Base from '../layouts/Base.astro';
 import Icon from '../components/Icon.astro';
-import { currentVisitorId } from '../lib/auth';
+import { clearCookie, currentVisitorId, VISITOR_COOKIE } from '../lib/auth';
 import { getDb, progressFor } from '../lib/db';
 import { employers, totalEmployers } from '../lib/employers';
 import { sessionSecret } from '../lib/env';
@@ -14,7 +14,18 @@ const visitorId = await currentVisitorId(Astro.request, sessionSecret(env));
 if (!visitorId) return Astro.redirect('/', 302);
 
 const progress = await progressFor(getDb(env), visitorId);
-if (!progress) return Astro.redirect('/', 302);
+if (!progress) {
+  // Stale cookie (registration deleted or from another deployment): clear it
+  // so `/` does not bounce the browser back here forever.
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: '/',
+      'Set-Cookie': clearCookie(Astro.request, VISITOR_COOKIE),
+      'Cache-Control': 'no-store',
+    },
+  });
+}
 
 const { visitor, visited, remaining, completed, redeemedAt } = progress;
 const visitedCount = visited.length;

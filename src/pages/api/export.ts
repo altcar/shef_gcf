@@ -7,7 +7,9 @@ import { logError } from '../../lib/http';
 export const prerender = false;
 
 function csvCell(value: unknown): string {
-  const text = value === null || value === undefined ? '' : String(value);
+  let text = value === null || value === undefined ? '' : String(value);
+  // Stop spreadsheets from treating visitor-supplied text as a formula.
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
