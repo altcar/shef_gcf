@@ -114,9 +114,8 @@ Workers Builds installs dependencies before it runs the build command, so the bu
 ## Deployment history
 
 This app used to run on Vercel (`gcf-liart.vercel.app`) with a MySQL database. It now runs entirely
-on Cloudflare: Workers for SSR, D1 for storage, Workers Builds for CI. The old Vercel project and
-database host are no longer part of the stack; delete the Vercel project when you no longer need its
-build logs.
+on Cloudflare: Workers for SSR, D1 for storage, Workers Builds for CI. The old Vercel project has been
+deleted and the old database host is unreachable, so nothing outside this repository is still needed.
 
 ## Data
 
