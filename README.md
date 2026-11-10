@@ -111,6 +111,13 @@ Workers Builds installs dependencies before it runs the build command, so the bu
 `npm run build`. Preview builds (non-`main` branches) use
 `npx wrangler versions upload`.
 
+## Deployment history
+
+This app used to run on Vercel (`gcf-liart.vercel.app`) with a MySQL database. It now runs entirely
+on Cloudflare: Workers for SSR, D1 for storage, Workers Builds for CI. The old Vercel project and
+database host are no longer part of the stack; delete the Vercel project when you no longer need its
+build logs.
+
 ## Data
 
 D1 schema lives in [`db/migrations`](db/migrations):
